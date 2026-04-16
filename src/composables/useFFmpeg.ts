@@ -78,18 +78,10 @@ export function useFFmpeg() {
     // 5. 读取结果
     const data = await ffmpeg.readFile('output.gif');
     
-    // 强制转换为 Uint8Array 以便访问 byteLength
-    const uint8Data = data as Uint8Array;
-    console.log('生成的 GIF 大小:', uint8Data.byteLength);
-
-    // --- 重点：修复 build 报错的写法 ---
-    // 使用一个通用的数组包装，并显式断言为 any 绕过 BlobPart 的兼容性检查
-    // 或者使用数据拷贝来确保它不是 SharedArrayBuffer
-    const blob = new Blob([uint8Data.buffer as ArrayBuffer], { type: 'image/gif' });
-    
-    // 如果上面的写法还报错，请尝试这个最暴力的“拷贝法”：
-    // const safeData = new Uint8Array(uint8Data); 
-    // const blob = new Blob([safeData], { type: 'image/gif' });
+    // 核心修复：先转为 Uint8Array，再转为普通的 ArrayBuffer 拷贝
+    // 这样可以彻底避开 SharedArrayBuffer 带来的类型兼容问题
+    const uint8 = new Uint8Array(data as any);
+    const blob = new Blob([uint8], { type: 'image/gif' });
 
     return URL.createObjectURL(blob);
   };
