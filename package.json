@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "npm run build-only", 
-    "preview": "vite preview",
-    "build-only": "vite build",
-    "type-check": "vue-tsc --build"
-  },
+  "dev": "vite",
+  "build": "npm run build-only", 
+  "preview": "vite preview",
+  "build-only": "vite build",
+  "tauri": "tauri",
+  "type-check": "vue-tsc --build"
+},
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.15",
     "@ffmpeg/util": "^0.12.2",
