@@ -39,15 +39,20 @@ jobs:
       - name: install frontend dependencies
         run: npm install
 
-      # --- 核心修改：使用刚刚生成的动态 Tag 打包 ---
+     # 1. 提取 package.json 中的版本号
+      - name: Get version
+        id: package_version
+        shell: bash
+        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      # 2. 使用统一的版本号进行发布
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # 使用上面步骤生成的 new_tag
-          tagName: ${{ steps.tag_version.outputs.new_tag }} 
-          releaseName: "GIF Comp ${{ steps.tag_version.outputs.new_tag }}"
-          releaseBody: "由 GitHub Actions 自动构建，版本号：${{ steps.tag_version.outputs.new_tag }}"
-          releaseDraft: false # 直接发布，不存草稿
+          # 强制两个平台都指向同一个 Tag，例如 v1.0.2
+          tagName: v${{ steps.package_version.outputs.version }}
+          releaseName: "GIF Comp v${{ steps.package_version.outputs.version }}"
+          releaseDraft: false
           prerelease: false
