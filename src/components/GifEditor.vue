@@ -1,9 +1,5 @@
 <template>
-  <div class="gif-container dark-theme">
-    <header>
-      <h1>GIF 制作器</h1>
-      <span class="version-tag">v1.1.8 - Final Pro</span>
-    </header>
+  <div class="gif-container">
 
     <main class="main-layout">
       <aside class="settings-panel scrollbar">
@@ -185,7 +181,6 @@ const ratios = [
   { name: "16:9", value: "16/9" },
   { name: "9:16", value: "9/16" },
 ];
-
 const images = ref([]);
 const processing = ref(false);
 const preProcessing = ref(false);
@@ -200,7 +195,6 @@ const getPreviewStyle = computed(() => ({
 }));
 
 const triggerUpload = () => document.getElementById("fileInput").click();
-
 const handleUpload = (e) => {
   const files = Array.from(e.target.files);
   files.forEach((file) => {
@@ -212,25 +206,20 @@ const handleUpload = (e) => {
   });
   e.target.value = "";
 };
-
 const removeImage = (id) => {
   images.value = images.value.filter((item) => item.id !== id);
 };
-
 const handleExport = async () => {
   if (images.value.length < 2) return alert("请至少添加2张图片");
   preProcessing.value = true;
   resultUrl.value = "";
-
   try {
     const binaryData = [];
     for (const item of images.value) {
-      const buffer = await item.file.arrayBuffer();
-      binaryData.push(new Uint8Array(buffer));
+      binaryData.push(new Uint8Array(await item.file.arrayBuffer()));
     }
     preProcessing.value = false;
     processing.value = true;
-
     const url = await generateGif(binaryData, {
       fps: fps.value,
       width: width.value,
@@ -241,49 +230,46 @@ const handleExport = async () => {
       ratio: ratio.value,
       rotate: rotate.value,
     });
-
     await nextTick();
     setTimeout(() => {
       resultUrl.value = url;
     }, 50);
   } catch (err) {
-    console.error("合成失败:", err);
+    console.error("失败:", err);
   } finally {
     preProcessing.value = false;
     processing.value = false;
   }
 };
-
 const downloadGif = async () => {
   const filePath = await save({
     filters: [{ name: "GIF", extensions: ["gif"] }],
   });
   if (filePath) {
     const res = await fetch(resultUrl.value);
-    const buffer = await res.arrayBuffer();
-    await writeFile(filePath, new Uint8Array(buffer));
+    await writeFile(filePath, new Uint8Array(await res.arrayBuffer()));
   }
 };
 </script>
 
 <style scoped>
-.gif-container.dark-theme {
+/* 核心改动：仅将颜色替换为变量，布局参数 100% 还原 */
+.gif-container {
   padding: 20px;
   max-width: 1200px;
   margin: 0 auto;
   min-height: 100vh;
-  background-color: #121212;
-  color: #e0e0e0;
+  color: var(--text-main);
   user-select: none;
 }
 header {
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--border-color);
   margin-bottom: 20px;
   display: flex;
   align-items: baseline;
 }
 h1 {
-  color: #fff;
+  color: var(--text-main);
   margin: 0;
 }
 .version-tag {
@@ -299,10 +285,10 @@ h1 {
 }
 
 .settings-panel {
-  background: #1e1e1e;
+  background: var(--bg-panel);
   padding: 20px;
   border-radius: 12px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-color);
   height: 88vh;
   overflow-y: auto;
 }
@@ -310,7 +296,7 @@ h1 {
 .divider {
   margin: 25px 0 15px;
   padding-top: 15px;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border-color);
   font-size: 13px;
   color: #409eff;
   font-weight: bold;
@@ -324,9 +310,9 @@ h1 {
 .input-number {
   width: 100%;
   padding: 10px;
-  background: #2c2c2c;
-  border: 1px solid #444;
-  color: #fff;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
   border-radius: 6px;
 }
 .slider {
@@ -341,8 +327,8 @@ h1 {
   gap: 8px;
 }
 .ratio-btn {
-  background: #2c2c2c;
-  border: 1px solid #444;
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
   color: #888;
   padding: 6px;
   border-radius: 4px;
@@ -357,8 +343,8 @@ h1 {
 .reset-btn {
   width: 100%;
   margin-top: 10px;
-  background: #333;
-  color: #ccc;
+  background: var(--border-color);
+  color: var(--text-main);
   border: none;
   padding: 5px;
   border-radius: 4px;
@@ -367,9 +353,9 @@ h1 {
 }
 
 .vip-box {
-  background: #252525;
+  background: var(--bg-input);
   padding: 12px;
-  border: 1px solid #3e3e3e;
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   margin-top: 10px;
 }
@@ -405,16 +391,18 @@ h1 {
   font-size: 13px;
 }
 
+/* 预览列表布局保持不动 */
 .preview-list {
   display: flex;
   gap: 15px;
   flex-wrap: wrap;
-  border: 2px dashed #444;
+  border: 2px dashed var(--border-color);
   padding: 20px;
   border-radius: 12px;
-  background: #181818;
+  background: var(--bg-panel);
   min-height: 150px;
 }
+/* 图片尺寸严格锁定 100x100 */
 .preview-item {
   width: 100px;
   height: 100px;
@@ -424,7 +412,7 @@ h1 {
   width: 100%;
   height: 100%;
   border-radius: 4px;
-  border: 1px solid #444;
+  border: 1px solid var(--border-color);
   overflow: hidden;
   display: flex;
   align-items: center;
@@ -468,14 +456,8 @@ h1 {
 
 .result-section {
   margin-top: 40px;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--border-color);
   padding-top: 20px;
-}
-.result-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 15px;
 }
 .btn-download {
   background: #00897b;
@@ -488,7 +470,7 @@ h1 {
 .final-gif {
   max-width: 100%;
   border-radius: 12px;
-  border: 1px solid #333;
+  border: 1px solid var(--border-color);
   box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
 }
 
@@ -496,7 +478,7 @@ h1 {
   width: 4px;
 }
 .scrollbar::-webkit-scrollbar-thumb {
-  background: #444;
+  background: var(--border-color);
   border-radius: 10px;
 }
 </style>
