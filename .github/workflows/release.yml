@@ -49,6 +49,6 @@ jobs:
         with:
           tagName: v__VERSION__ # 会自动读取 package.json 里的版本号
           releaseName: "GIF Comp v__VERSION__"
-          releaseBody: "自动生成的跨平台安装包"
-          releaseDraft: true
+          releaseBody: "imageToGIF 的版本，支持 Windows 和 macOS 双平台！"
+          releaseDraft: false
           prerelease: false
