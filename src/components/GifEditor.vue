@@ -1,12 +1,12 @@
 <template>
-  <div class="gif-container">
+  <div class="gif-container dark-theme">
     <header>
       <h1>GIF 制作器</h1>
-      <span class="version-tag">v1.1.0 - 格式修正版</span>
+      <span class="version-tag">v1.1.8 - Final Pro</span>
     </header>
 
     <main class="main-layout">
-      <aside class="settings-panel">
+      <aside class="settings-panel scrollbar">
         <h3>生成参数</h3>
         <div class="control-group">
           <label>播放速度 (FPS): {{ fps }}</label>
@@ -19,9 +19,67 @@
           />
         </div>
         <div class="control-group">
-          <label>宽度 (px):</label>
+          <label>输出宽度 (px):</label>
           <input type="number" v-model.number="width" class="input-number" />
         </div>
+
+        <div class="divider">比例裁剪</div>
+        <div class="ratio-grid">
+          <button
+            v-for="r in ratios"
+            :key="r.name"
+            :class="['ratio-btn', { active: ratio === r.value }]"
+            @click="ratio = r.value"
+          >
+            {{ r.name }}
+          </button>
+        </div>
+
+        <div class="control-group" style="margin-top: 20px">
+          <label>旋转角度: {{ rotate }}°</label>
+          <input
+            type="range"
+            v-model.number="rotate"
+            min="0"
+            max="360"
+            step="90"
+            class="slider"
+          />
+          <button class="reset-btn" @click="rotate = 0">恢复原状</button>
+        </div>
+
+        <div class="divider">图像滤镜</div>
+        <div class="control-group">
+          <label>亮度: {{ brightness }}</label>
+          <input
+            type="range"
+            v-model.number="brightness"
+            min="-50"
+            max="50"
+            class="slider"
+          />
+        </div>
+        <div class="control-group">
+          <label>对比度: {{ contrast }}</label>
+          <input
+            type="range"
+            v-model.number="contrast"
+            min="-50"
+            max="50"
+            class="slider"
+          />
+        </div>
+        <div class="control-group">
+          <label>饱和度: {{ saturation }}</label>
+          <input
+            type="range"
+            v-model.number="saturation"
+            min="-50"
+            max="50"
+            class="slider"
+          />
+        </div>
+
         <div class="control-group vip-box">
           <label class="checkbox-label">
             <input type="checkbox" v-model="isVip" />
@@ -47,9 +105,9 @@
       <section class="content-area">
         <div class="action-bar">
           <button @click="triggerUpload" class="btn-select">选择图片</button>
-          <span v-if="images.length > 0" class="tip">
-            已选 {{ images.length }} 张（请按住蓝色圆圈拖拽排序）
-          </span>
+          <span v-if="images.length > 0" class="tip"
+            >共 {{ images.length }} 帧（拖拽数字排序）</span
+          >
         </div>
         <input
           type="file"
@@ -67,16 +125,21 @@
           tag="div"
           class="preview-list"
           :animation="250"
-          ghost-class="ghost"
-          chosen-class="chosen"
-          drag-class="dragging"
           :force-fallback="true"
         >
           <template #item="{ element, index }">
             <div class="preview-item">
               <div class="drag-handle">{{ index + 1 }}</div>
-              <div class="img-wrapper">
-                <img :src="element.url" />
+              <div class="img-wrapper" :style="getPreviewStyle">
+                <img
+                  :src="element.url"
+                  :style="{
+                    transform: `rotate(${rotate}deg)`,
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                  }"
+                />
               </div>
               <div class="remove-btn" @click.stop="removeImage(element.id)">
                 ×
@@ -100,20 +163,41 @@
 </template>
 
 <script setup>
-import { ref, nextTick } from "vue";
+import { ref, nextTick, computed } from "vue";
 import draggable from "vuedraggable";
 import { useFFmpeg } from "../composables/useFFmpeg";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 
-const fps = ref(5);
+const fps = ref(10);
 const width = ref(500);
 const isVip = ref(true);
+const brightness = ref(0);
+const contrast = ref(0);
+const saturation = ref(0);
+const ratio = ref("original");
+const rotate = ref(0);
+
+const ratios = [
+  { name: "原始", value: "original" },
+  { name: "1:1", value: "1/1" },
+  { name: "4:3", value: "4/3" },
+  { name: "16:9", value: "16/9" },
+  { name: "9:16", value: "9/16" },
+];
+
 const images = ref([]);
 const processing = ref(false);
 const preProcessing = ref(false);
 const resultUrl = ref("");
 const { progress, generateGif } = useFFmpeg();
+
+const getPreviewStyle = computed(() => ({
+  filter: `brightness(${100 + brightness.value}%) contrast(${
+    100 + contrast.value
+  }%) saturate(${100 + saturation.value}%)`,
+  aspectRatio: ratio.value === "original" ? "auto" : ratio.value,
+}));
 
 const triggerUpload = () => document.getElementById("fileInput").click();
 
@@ -151,6 +235,11 @@ const handleExport = async () => {
       fps: fps.value,
       width: width.value,
       isVip: isVip.value,
+      brightness: brightness.value,
+      contrast: contrast.value,
+      saturation: saturation.value,
+      ratio: ratio.value,
+      rotate: rotate.value,
     });
 
     await nextTick();
@@ -178,23 +267,31 @@ const downloadGif = async () => {
 </script>
 
 <style scoped>
-.gif-container {
+.gif-container.dark-theme {
   padding: 20px;
   max-width: 1200px;
   margin: 0 auto;
+  min-height: 100vh;
+  background-color: #121212;
+  color: #e0e0e0;
   user-select: none;
 }
 header {
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #333;
   margin-bottom: 20px;
   display: flex;
   align-items: baseline;
 }
+h1 {
+  color: #fff;
+  margin: 0;
+}
 .version-tag {
-  color: #999;
+  color: #666;
   font-size: 12px;
   margin-left: 10px;
 }
+
 .main-layout {
   display: grid;
   grid-template-columns: 280px 1fr;
@@ -202,54 +299,100 @@ header {
 }
 
 .settings-panel {
-  background: #fcfcfc;
+  background: #1e1e1e;
   padding: 20px;
   border-radius: 12px;
-  border: 1px solid #eaeaea;
-  height: fit-content;
+  border: 1px solid #333;
+  height: 88vh;
+  overflow-y: auto;
 }
-.control-group {
-  margin-bottom: 25px;
+
+.divider {
+  margin: 25px 0 15px;
+  padding-top: 15px;
+  border-top: 1px solid #333;
+  font-size: 13px;
+  color: #409eff;
+  font-weight: bold;
 }
 .control-group label {
   display: block;
   margin-bottom: 10px;
   font-weight: bold;
-}
-.slider {
-  width: 100%;
-  cursor: pointer;
+  font-size: 14px;
 }
 .input-number {
   width: 100%;
   padding: 10px;
-  border: 1px solid #ddd;
+  background: #2c2c2c;
+  border: 1px solid #444;
+  color: #fff;
   border-radius: 6px;
 }
+.slider {
+  width: 100%;
+  cursor: pointer;
+  accent-color: #409eff;
+}
+
+.ratio-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.ratio-btn {
+  background: #2c2c2c;
+  border: 1px solid #444;
+  color: #888;
+  padding: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.ratio-btn.active {
+  border-color: #409eff;
+  color: #409eff;
+  background: rgba(64, 158, 255, 0.1);
+}
+.reset-btn {
+  width: 100%;
+  margin-top: 10px;
+  background: #333;
+  color: #ccc;
+  border: none;
+  padding: 5px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
 .vip-box {
-  background: #fff;
+  background: #252525;
   padding: 12px;
-  border: 1px solid #ffeeba;
+  border: 1px solid #3e3e3e;
   border-radius: 8px;
+  margin-top: 10px;
 }
 
 .btn-run {
   width: 100%;
   padding: 14px;
-  background: #67c23a;
+  background: #2e7d32;
   color: white;
   border: none;
   border-radius: 8px;
   cursor: pointer;
   font-size: 16px;
   font-weight: bold;
+  margin-top: 20px;
 }
 .btn-run:disabled {
-  background: #ccc;
+  background: #424242;
+  color: #888;
 }
 
 .btn-select {
-  background: #409eff;
+  background: #1976d2;
   color: white;
   border: none;
   padding: 8px 20px;
@@ -258,86 +401,84 @@ header {
 }
 .tip {
   margin-left: 10px;
-  color: #666;
+  color: #999;
   font-size: 13px;
 }
 
 .preview-list {
   display: flex;
-  gap: 20px;
+  gap: 15px;
   flex-wrap: wrap;
-  min-height: 150px;
-  border: 2px dashed #dcdfe6;
+  border: 2px dashed #444;
   padding: 20px;
   border-radius: 12px;
-  background: #fafafa;
+  background: #181818;
+  min-height: 150px;
 }
-
 .preview-item {
   width: 100px;
   height: 100px;
   position: relative;
-  background: #fff;
-  border-radius: 8px;
 }
 .img-wrapper {
   width: 100%;
   height: 100%;
-  border-radius: 8px;
+  border-radius: 4px;
+  border: 1px solid #444;
   overflow: hidden;
-  border: 1px solid #eee;
-}
-.img-wrapper img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+  transition: all 0.3s;
 }
 
 .drag-handle {
   position: absolute;
   top: -10px;
   left: -10px;
-  background: #409eff;
+  background: #1976d2;
   color: #fff;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 11px;
   cursor: move;
-  z-index: 100;
+  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
-
 .remove-btn {
   position: absolute;
   top: -8px;
   right: -8px;
-  background: #f56c6c;
+  background: #c62828;
   color: #fff;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 101;
+  z-index: 11;
 }
 
-.ghost {
-  opacity: 0.2;
-  background: #c8ebfb !important;
-}
 .result-section {
   margin-top: 40px;
-  border-top: 1px solid #eee;
+  border-top: 1px solid #333;
   padding-top: 20px;
 }
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
 .btn-download {
-  background: #10b981;
+  background: #00897b;
   color: white;
   border: none;
   padding: 10px 24px;
@@ -347,6 +488,15 @@ header {
 .final-gif {
   max-width: 100%;
   border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  border: 1px solid #333;
+  box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
+}
+
+.scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 10px;
 }
 </style>

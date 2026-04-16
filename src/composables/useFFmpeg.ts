@@ -6,6 +6,11 @@ interface GifConfig {
   fps: number;
   width: number;
   isVip: boolean;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  ratio: string;
+  rotate: number;
 }
 
 export function useFFmpeg() {
@@ -35,66 +40,90 @@ export function useFFmpeg() {
     config: GifConfig
   ) => {
     if (!isLoaded.value) await loadFFmpeg();
-    const { fps, width, isVip } = config;
+    const {
+      fps,
+      width,
+      isVip,
+      brightness,
+      contrast,
+      saturation,
+      ratio,
+      rotate,
+    } = config;
 
-    // 1. 彻底清理环境，防止旧文件干扰
+    // 1. 清理环境
     try {
       const dir = await ffmpeg.listDir(".");
-      for (const f of dir) {
-        if (!f.isDir) await ffmpeg.deleteFile(f.name);
-      }
+      for (const f of dir) if (!f.isDir) await ffmpeg.deleteFile(f.name);
     } catch (e) {}
 
-    // 2. 写入图片：使用 new Uint8Array 强制内存拷贝，防止被 Worker 意外回收
+    // 2. 写入图片
     for (let i = 0; i < binaryImageList.length; i++) {
       const fileName = `input${(i + 1).toString().padStart(3, "0")}.png`;
       await ffmpeg.writeFile(fileName, new Uint8Array(binaryImageList[i]));
     }
 
-    const filterString = `scale=${width}:-1:flags=lanczos`;
-    // 关键：-framerate 必须在 -i 之前，强制每张图的时长
+    // 3. 构建滤镜链
+    let filterChain = [];
+
+    // 处理旋转
+    if (rotate === 90) filterChain.push("transpose=1");
+    else if (rotate === 180) filterChain.push("transpose=2,transpose=2");
+    else if (rotate === 270) filterChain.push("transpose=2");
+    else if (rotate !== 0)
+      filterChain.push(`rotate=${rotate}*PI/180:fillcolor=black`);
+
+    // 处理调色
+    const b = brightness / 100;
+    const c = 1 + contrast / 100;
+    const s = 1 + saturation / 100;
+    filterChain.push(`eq=brightness=${b}:contrast=${c}:saturation=${s}`);
+
+    // 处理中心裁剪
+    if (ratio !== "original") {
+      const [rw, rh] = ratio.split("/").map(Number);
+      const targetRatio = rw / rh;
+      // 先裁剪形状，定位在中心 (iw-ow)/2
+      filterChain.push(
+        `crop='if(gt(iw/ih,${targetRatio}),ih*${targetRatio},iw)':'if(gt(iw/ih,${targetRatio}),ih,iw/${targetRatio})'`
+      );
+    }
+
+    // 最终缩放
+    filterChain.push(`scale=${width}:-1:flags=lanczos`);
+
+    const vf = filterChain.join(",");
     const inputArgs = ["-framerate", fps.toString(), "-i", "input%03d.png"];
 
-    console.log("FFmpeg 开始合成，参数:", { fps, width, isVip });
+    console.log("FFmpeg Filter Chain:", vf);
 
+    // 4. 合成输出
     if (isVip) {
-      // 步骤 A: 生成调色盘
+      // 调色盘生成
       await ffmpeg.exec([
         ...inputArgs,
         "-vf",
-        `${filterString},palettegen`,
+        `${vf},palettegen`,
         "palette.png",
       ]);
-
-      // 步骤 B: 应用调色盘合成 GIF
+      // 最终合成
       await ffmpeg.exec([
         "-y",
         ...inputArgs,
         "-i",
         "palette.png",
         "-filter_complex",
-        `[0:v]${filterString}[x];[x][1:v]paletteuse`,
+        `[0:v]${vf}[x];[x][1:v]paletteuse`,
         "output.gif",
       ]);
     } else {
-      await ffmpeg.exec([
-        "-y",
-        ...inputArgs,
-        "-vf",
-        filterString,
-        "output.gif",
-      ]);
+      await ffmpeg.exec(["-y", ...inputArgs, "-vf", vf, "output.gif"]);
     }
 
-    // 3. 读取并封装为显式类型的 Blob
     const data = await ffmpeg.readFile("output.gif");
-    const gifBlob = new Blob([(data as Uint8Array).buffer], {
-      type: "image/gif",
-    });
-
-    console.log(`合成完成，文件大小: ${(gifBlob.size / 1024).toFixed(2)} KB`);
-
-    return URL.createObjectURL(gifBlob);
+    return URL.createObjectURL(
+      new Blob([(data as Uint8Array).buffer], { type: "image/gif" })
+    );
   };
 
   return { progress, generateGif };
