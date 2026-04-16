@@ -2,9 +2,8 @@ name: "Publish Release"
 
 on:
   push:
-    # 当你推送到 main 分支时触发打包
     branches:
-      - main
+      - main # 监听 main 分支的变动
 
 jobs:
   publish-tauri:
@@ -13,42 +12,42 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # 这里定义了你要打包的系统：Windows 和 macOS
         platform: [macos-latest, windows-latest]
 
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 必须设为 0，否则无法获取历史版本进行自增
 
-      # 1. 设置 Node.js 环境
+      # --- 关键步骤：自动生成 Tag ---
+      - name: Auto Tag Generation
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch # 默认每次推送到 main 都增加修订号 (x.x.1)
+
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 22 # 升级到 22，紧跟时代
+          node-version: 22
 
-      # 2. 设置 Rust 环境
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      # 3. Windows 端特有的依赖补全（如果需要）
-      - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04' # 暂时没用到 linux，但留着备用
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev libappindicator3-dev librsvg2-dev patchelf
-
-      # 4. 安装前端依赖
       - name: install frontend dependencies
         run: npm install
 
-      # 5. 执行 Tauri 打包
+      # --- 核心修改：使用刚刚生成的动态 Tag 打包 ---
       - name: build tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: v__VERSION__ # 会自动读取 package.json 里的版本号
-          releaseName: "GIF Comp v__VERSION__"
-          releaseBody: "imageToGIF 的版本，支持 Windows 和 macOS 双平台！"
-          releaseDraft: false
+          # 使用上面步骤生成的 new_tag
+          tagName: ${{ steps.tag_version.outputs.new_tag }} 
+          releaseName: "GIF Comp ${{ steps.tag_version.outputs.new_tag }}"
+          releaseBody: "由 GitHub Actions 自动构建，版本号：${{ steps.tag_version.outputs.new_tag }}"
+          releaseDraft: false # 直接发布，不存草稿
           prerelease: false
