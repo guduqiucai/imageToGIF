@@ -24,7 +24,7 @@ jobs:
       - name: setup node
         uses: actions/setup-node@v4
         with:
-          node-version: 24 # 升级到 24，紧跟时代
+          node-version: 22 # 升级到 22，紧跟时代
 
       # 2. 设置 Rust 环境
       - name: install Rust stable
