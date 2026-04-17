@@ -195,29 +195,30 @@ const getPreviewStyle = computed(() => ({
 }));
 
 const triggerUpload = () => document.getElementById("fileInput").click();
-const handleUpload = (e) => {
+const handleUpload = async (e) => {
   const files = Array.from(e.target.files);
-  files.forEach((file) => {
+  for (const file of files) {
+    const pngData = await convertToPng(file);
     images.value.push({
       id: `img_${Math.random().toString(36).substr(2, 9)}_${Date.now()}`,
       file: file,
       url: URL.createObjectURL(file),
+      pngData: pngData,   // 存储 PNG 二进制数据
     });
-  });
+  }
   e.target.value = "";
 };
 const removeImage = (id) => {
   images.value = images.value.filter((item) => item.id !== id);
 };
+
 const handleExport = async () => {
   if (images.value.length < 2) return alert("请至少添加2张图片");
   preProcessing.value = true;
   resultUrl.value = "";
   try {
-    const binaryData = [];
-    for (const item of images.value) {
-      binaryData.push(new Uint8Array(await item.file.arrayBuffer()));
-    }
+    // 使用转换后的 PNG 数据
+    const binaryData = images.value.map(item => item.pngData);
     preProcessing.value = false;
     processing.value = true;
     const url = await generateGif(binaryData, {
@@ -230,17 +231,39 @@ const handleExport = async () => {
       ratio: ratio.value,
       rotate: rotate.value,
     });
-    await nextTick();
-    setTimeout(() => {
-      resultUrl.value = url;
-    }, 50);
+    resultUrl.value = url;
   } catch (err) {
-    console.error("失败:", err);
+    console.error("生成失败:", err);
+    alert(`合成失败: ${err.message || "未知错误"}`);
   } finally {
     preProcessing.value = false;
     processing.value = false;
   }
 };
+
+// 将任意图片文件转换为 PNG 格式的 Uint8Array
+const convertToPng = (file) => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((blob) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(new Uint8Array(reader.result));
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(blob);
+      }, 'image/png');
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = reject;
+    img.src = URL.createObjectURL(file);
+  });
+};
+
 const downloadGif = async () => {
   const filePath = await save({
     filters: [{ name: "GIF", extensions: ["gif"] }],
