@@ -19,7 +19,12 @@ export function useFFmpeg() {
   const progress = ref(0);
 
   ffmpeg.on("log", ({ message }) => {
-    console.log("[FFmpeg]", message);
+    console.log("[FFmpeg内核日志]:", message);
+  });
+
+  ffmpeg.on("progress", ({ progress: p }) => {
+    const safeProgress = Math.max(0, Math.min(1, p));
+    progress.value = Math.round(safeProgress * 100);
   });
 
   const loadFFmpeg = async () => {
@@ -32,95 +37,78 @@ export function useFFmpeg() {
     isLoaded.value = true;
   };
 
-  ffmpeg.on("progress", ({ progress: p }) => {
-    progress.value = Math.round(p * 100);
-  });
-
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  const generateGif = async (binaryImageList: Uint8Array[], config: GifConfig) => {
+  const generateGif = async (binaryImageList: any[], config: GifConfig) => {
     if (!isLoaded.value) await loadFFmpeg();
+    
+    // 每次开始前强制重置进度和清理上一次残留
+    progress.value = 0;
 
     const { fps, width, isVip, brightness, contrast, saturation, ratio, rotate } = config;
 
-    // 1. 清理工作目录
     try {
-      const files = await ffmpeg.listDir(".");
-      for (const f of files) {
-        if (!f.isDir) await ffmpeg.deleteFile(f.name);
+      // --- 关键修复：深度清理虚拟文件系统 ---
+      const rootFiles = await ffmpeg.listDir(".");
+      for (const f of rootFiles) {
+        if (!f.isDir) {
+          await ffmpeg.deleteFile(f.name).catch(() => {});
+        }
       }
-    } catch (e) {}
 
-    // 2. 写入图片（编号从 000 开始）
-    for (let i = 0; i < binaryImageList.length; i++) {
-      const fileName = `input${i.toString().padStart(3, "0")}.png`;
-      await ffmpeg.writeFile(fileName, new Uint8Array(binaryImageList[i]));
-    }
-    await sleep(500);
-
-    // 3. 构建滤镜链
-    const filterParts: string[] = [];
-
-    if (rotate === 90) filterParts.push("transpose=1");
-    else if (rotate === 180) filterParts.push("transpose=2,transpose=2");
-    else if (rotate === 270) filterParts.push("transpose=2");
-    else if (rotate !== 0) filterParts.push(`rotate=${rotate}*PI/180:fillcolor=black`);
-
-    const b = brightness / 100;
-    const c = 1 + contrast / 100;
-    const s = 1 + saturation / 100;
-    filterParts.push(`eq=brightness=${b}:contrast=${c}:saturation=${s}`);
-
-    // 先统一缩放
-    filterParts.push(`scale=${width}:-1:flags=lanczos`);
-
-    // 比例裁剪（仅当不是原始比例时）
-    if (ratio !== "original") {
-      const [rw, rh] = ratio.split("/").map(Number);
-      if (rw > 0 && rh > 0) {
-        const targetRatio = rw / rh;
-        // 安全裁剪表达式，确保结果为正
-        filterParts.push(`crop='min(iw,ih*${targetRatio})':'min(ih,iw/${targetRatio})'`);
+      // --- 关键修复：解决 DataCloneError ---
+      // 使用 .slice() 或重新包装来确保我们发送的是原始 ArrayBuffer 的拷贝，而不是 Vue Proxy
+      for (let i = 0; i < binaryImageList.length; i++) {
+        const fileName = `input${i.toString().padStart(3, "0")}.png`;
+        // 这里的转换非常重要：获取底层 ArrayBuffer 并创建全新的 Uint8Array 视图
+        const buffer = binaryImageList[i].buffer || binaryImageList[i];
+        const uint8 = new Uint8Array(buffer.slice ? buffer.slice(0) : buffer);
+        await ffmpeg.writeFile(fileName, uint8);
       }
-    }
 
-    const baseFilter = filterParts.join(",");
-    console.log("最终滤镜链:", baseFilter);
+      // 构建滤镜
+      const targetW = width % 2 === 0 ? width : width - 1;
+      let vf = `eq=brightness=${brightness/100}:contrast=${1+contrast/100}:saturation=${1+saturation/100},scale=${targetW}:-2:flags=lanczos`;
+      
+      if (rotate !== 0) {
+        const trans: any = { 90: "transpose=1", 180: "transpose=2,transpose=2", 270: "transpose=2" };
+        vf += `,${trans[rotate] || `rotate=${rotate}*PI/180:fillcolor=black`}`;
+      }
 
-    const inputArgs = ["-framerate", fps.toString(), "-start_number", "0", "-i", "input%03d.png"];
+      if (ratio !== "original") {
+        const [rw, rh] = ratio.split("/").map(Number);
+        vf += `,crop='min(iw,ih*${rw/rh})':'min(ih,iw/${rw/rh})'`;
+      }
 
-    try {
-      // 生成中间普通 GIF（与基础版命令完全一致）
-      console.log("生成中间普通 GIF...");
-      await ffmpeg.exec(["-y", ...inputArgs, "-vf", baseFilter, "temp.gif"]);
-      await sleep(300);
+      // 生成中间件
+      await ffmpeg.exec(["-y", "-framerate", fps.toString(), "-i", "input%03d.png", "-vf", vf, "-c:v", "ffv1", "temp.mkv"]);
 
-      let finalData: Uint8Array;
       if (isVip) {
-        console.log("VIP模式：生成调色板...");
-        await ffmpeg.exec(["-y", "-i", "temp.gif", "-vf", "palettegen=stats_mode=diff", "palette.png"]);
-        await sleep(300);
-
-        console.log("VIP模式：应用调色板合成最终 GIF...");
-        await ffmpeg.exec(["-y", "-i", "temp.gif", "-i", "palette.png", "-filter_complex", "[0:v][1:v]paletteuse", "output.gif"]);
-        await sleep(300);
-        finalData = await ffmpeg.readFile("output.gif") as Uint8Array;
+        await ffmpeg.exec(["-y", "-i", "temp.mkv", "-vf", "palettegen=stats_mode=full", "palette.png"]);
+        await ffmpeg.exec(["-y", "-i", "temp.mkv", "-i", "palette.png", "-filter_complex", "[0:v][1:v]paletteuse=dither=none:diff_mode=1", "output.gif"]);
       } else {
-        finalData = await ffmpeg.readFile("temp.gif") as Uint8Array;
+        await ffmpeg.exec(["-y", "-i", "temp.mkv", "output.gif"]);
       }
 
-      if (!finalData || finalData.length === 0) {
-        throw new Error("生成的 GIF 文件为空");
-      }
+      const rawResult = await ffmpeg.readFile("output.gif");
+      const finalData = new Uint8Array(rawResult as ArrayBuffer);
+      const url = URL.createObjectURL(new Blob([finalData], { type: "image/gif" }));
 
-      const uint8Copy = new Uint8Array(finalData);
-      const blob = new Blob([uint8Copy], { type: "image/gif" });
-      console.log("GIF生成成功，大小:", blob.size);
-      return URL.createObjectURL(blob);
+      // --- 任务结束：立即释放 WASM 内存 ---
+      // 不清理会导致第二次执行时内存重叠触发 Aborted()
+      setTimeout(() => {
+        ffmpeg.deleteFile("temp.mkv").catch(() => {});
+        ffmpeg.deleteFile("output.gif").catch(() => {});
+        ffmpeg.deleteFile("palette.png").catch(() => {});
+      }, 1000);
+
+      progress.value = 100;
+      return url;
+
     } catch (err: any) {
-      console.error("FFmpeg执行失败:", err);
-      const fileList = await ffmpeg.listDir(".");
-      console.error("目录文件:", fileList);
+      console.error("生成失败:", err);
+      // 如果出现错误，建议刷新页面或重新加载内核
+      if (err.message?.includes("Aborted")) {
+        isLoaded.value = false; // 标记失效，强制下次重新加载
+      }
       throw err;
     }
   };
